@@ -1,0 +1,148 @@
+#!/bin/bash
+
+#set -e
+#set -x
+
+IFS="%"
+
+echo "Hailing frequencies open..."
+echo
+
+declare -A UHURA_COLOURS
+declare -A UHURA_FILTER
+
+set_colour() {
+    UHURA_COLOURS[$1]=$2
+}
+
+config_file="$HOME/.config/uhura"
+[[ -f "$config_file" ]] && source "$config_file"
+
+last_date=""
+last_time=""
+last_container=""
+
+highlight() {
+    local colour=$1
+    local string=$2
+
+    echo -ne "\033[48;5;${colour}m${string}\033[0m"
+}
+
+divider() {
+    local colour=$1
+    local date=$2
+    local time=$3
+
+    local text="\033[1m ${msgsource}\033[21m"
+
+    echo
+    echo -e "\033[48;5;${colour}m${text}\033[K\033[0m"
+}
+
+message() {
+    local message=$1
+
+    # Special Handling of Apache-style AccessLog lines
+    $(echo ${message} | grep -q "HTTP/1\.")
+    if [[ $? -eq 0 ]]; then
+        client_ip=$(echo ${message} | awk 'BEGIN { FPAT = "([^ ]+)|(\"[^\"]+\")" } { print $1 }')
+        response=$(echo ${message} | awk 'BEGIN { FPAT = "([^ ]+)|(\"[^\"]+\")" } { print $5 }')
+        request=$(echo ${message} | awk 'BEGIN { FPAT = "([^ ]+)|(\"[^\"]+\")" } { print $4 }' | sed -e 's/"//')
+
+        request_method=$(echo ${request} | awk '{print $1}')
+        request_resource=$(echo ${request} | awk '{print $2}')
+
+        echo -n " ${client_ip}"
+
+        if [[ $response -ge 200 ]] && [[ $response -lt 300 ]]; then
+            echo -ne "\033[92m"
+        elif [[ $response -ge 300 ]] && [[ $response -lt 400 ]]; then
+            echo -ne "\033[96m"
+        elif [[ $response -ge 400 ]] && [[ $response -lt 500 ]]; then
+            echo -ne "\033[93m"
+        elif [[ $response -ge 500 ]] && [[ $response -lt 600 ]]; then
+            echo -ne "\033[91m"
+        fi
+
+        echo -e " ${response} ${request_method} ${request_resource}\033[0m"
+    else
+        echo " ${message}"
+    fi
+}
+
+get_colour() {
+    echo ${UHURA_COLOURS[$1]-"0"}
+}
+
+show_line() {
+    local app=$1
+
+    if [[ "${#UHURA_FILTER[@]}" = "0" ]]; then
+        echo "show everything"
+        return 0
+    else
+        if [[ ${UHURA_FILTER[$app]} ]]; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+}
+
+####################################################################################################
+
+while [[ $# -gt 1 ]]; do
+    key="$1"
+
+    case $key in
+        -i|--include)
+            UHURA_FILTER[$2]=1
+            shift
+            ;;
+
+        *)
+            echo "Unknown Option: $key"
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+while read -r line; do
+
+    month=$(echo $line | awk '{ printf $1 }')
+    date=$(echo $line | awk '{ printf $2 }')
+    time=$(echo $line | awk '{ printf $3 }')
+    host=$(echo $line | awk '{ printf $4 }')
+    msgsource=$(echo $line | awk '{ printf $5 }' | sed 's|:||')
+    message=$(echo $line | cut -d ':' -f4- | sed 's|^ ||')
+    app=$(echo $msgsource | sed 's|\[.*\]||')
+    pid=$(echo $msgsource | sed -ne 's|.*\[\(.*\)\].*|\1|p')
+
+    if show_line $app; then
+
+        colour=$(get_colour $app)
+
+        if [[ "$app" = "$last_app" ]]; then
+
+            if [[ "$date" = "$last_date" ]] && [[ "$time" = "$last_time" ]]; then
+                highlight $colour "          "
+            else
+                highlight $colour " $time "
+            fi
+
+            message $message
+        else
+            divider $colour $app $date $time
+            highlight $colour " $time "
+            message $message
+        fi
+
+    fi
+
+    last_app=$app
+    last_date=$date
+    last_time=$time
+
+done < "${1:-/dev/stdin}"
