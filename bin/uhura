@@ -3,6 +3,7 @@
 #set -e
 #set -x
 
+oldIFS=$IFS
 IFS="%"
 
 echo "Hailing frequencies open..."
@@ -31,44 +32,51 @@ highlight() {
 
 divider() {
     local colour=$1
-    local date=$2
-    local time=$3
+    local app=$2
+    local date=$3
+    local time=$4
 
-    local text="\033[1m ${msgsource}\033[21m"
+    local text="\033[1m ${app}\033[21m"
 
     echo
     echo -e "\033[48;5;${colour}m${text}\033[K\033[0m"
 }
 
 message() {
-    local message=$1
+    local app=$1
+    local message=$2
 
     # Special Handling of Apache-style AccessLog lines
-    $(echo ${message} | grep -q "HTTP/1\.")
-    if [[ $? -eq 0 ]]; then
-        client_ip=$(echo ${message} | awk 'BEGIN { FPAT = "([^ ]+)|(\"[^\"]+\")" } { print $1 }')
-        response=$(echo ${message} | awk 'BEGIN { FPAT = "([^ ]+)|(\"[^\"]+\")" } { print $5 }')
-        request=$(echo ${message} | awk 'BEGIN { FPAT = "([^ ]+)|(\"[^\"]+\")" } { print $4 }' | sed -e 's/"//')
-
-        request_method=$(echo ${request} | awk '{print $1}')
-        request_resource=$(echo ${request} | awk '{print $2}')
-
-        echo -n " ${client_ip}"
-
-        if [[ $response -ge 200 ]] && [[ $response -lt 300 ]]; then
-            echo -ne "\033[92m"
-        elif [[ $response -ge 300 ]] && [[ $response -lt 400 ]]; then
-            echo -ne "\033[96m"
-        elif [[ $response -ge 400 ]] && [[ $response -lt 500 ]]; then
-            echo -ne "\033[93m"
-        elif [[ $response -ge 500 ]] && [[ $response -lt 600 ]]; then
-            echo -ne "\033[91m"
+#    $(echo ${message} | grep -q "HTTP/1\.")
+#    if [[ $? -eq 0 ]]; then
+#        client_ip=$(echo ${message} | awk 'BEGIN { FPAT = "([^ ]+)|(\"[^\"]+\")" } { print $1 }')
+#        response=$(echo ${message} | awk 'BEGIN { FPAT = "([^ ]+)|(\"[^\"]+\")" } { print $5 }')
+#        request=$(echo ${message} | awk 'BEGIN { FPAT = "([^ ]+)|(\"[^\"]+\")" } { print $4 }' | sed -e 's/"//')
+#
+#        request_method=$(echo ${request} | awk '{print $1}')
+#        request_resource=$(echo ${request} | awk '{print $2}')
+#
+#        echo -n " ${client_ip}"
+#
+#        if [[ $response -ge 200 ]] && [[ $response -lt 300 ]]; then
+#            echo -ne "\033[92m"
+#        elif [[ $response -ge 300 ]] && [[ $response -lt 400 ]]; then
+#            echo -ne "\033[96m"
+#        elif [[ $response -ge 400 ]] && [[ $response -lt 500 ]]; then
+#            echo -ne "\033[93m"
+#        elif [[ $response -ge 500 ]] && [[ $response -lt 600 ]]; then
+#            echo -ne "\033[91m"
+#        fi
+#
+#        echo -e " ${response} ${request_method} ${request_resource}\033[0m"
+#    else
+        formatter_path="${HOME}/Development/mduk/uhura/formatters/${app}.sh"
+        if [[ -f $formatter_path ]]; then
+            echo " $($formatter_path $message)"
+        else
+            echo " $message"
         fi
-
-        echo -e " ${response} ${request_method} ${request_resource}\033[0m"
-    else
-        echo " ${message}"
-    fi
+#    fi
 }
 
 get_colour() {
@@ -79,7 +87,6 @@ show_line() {
     local app=$1
 
     if [[ "${#UHURA_FILTER[@]}" = "0" ]]; then
-        echo "show everything"
         return 0
     else
         if [[ ${UHURA_FILTER[$app]} ]]; then
@@ -132,17 +139,19 @@ while read -r line; do
                 highlight $colour " $time "
             fi
 
-            message $message
+            message $app $message
         else
             divider $colour $app $date $time
             highlight $colour " $time "
-            message $message
+            message $app $message
         fi
+
+        last_app=$app
+        last_date=$date
+        last_time=$time
 
     fi
 
-    last_app=$app
-    last_date=$date
-    last_time=$time
-
 done < "${1:-/dev/stdin}"
+
+IFS=$oldIFS
